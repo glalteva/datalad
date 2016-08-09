@@ -60,6 +60,7 @@ requires = {
     ],
     'crawl': [
         'scrapy>=1.1.0rc3',  # versioning is primarily for python3 support
+        'jsonpath-madness....-ext'
     ],
     'tests': [
         'BeautifulSoup4',  # VERY weak requirement, still used in one of the tests

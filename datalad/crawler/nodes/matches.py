@@ -40,27 +40,51 @@ class ExtractorMatch(object):
     """
 
     def __init__(self, query, input='response', output='match', pop_input=False,
-                 allow_multiple=False, xpaths=None, csss=None, min_count=None,
+                 allow_multiple=False, min_count=None,
                  max_count=None):
         """"""
         # TODO: define arguments
         self.query = query
         # allow_multiple concerns only extraction of additional xpaths and csss
         self._allow_multiple = allow_multiple
-        self._xpaths = xpaths
-        self._csss = csss
         self._input = input
         self._output = output
         self._pop_input = False
         self._min_count = min_count
         self._max_count = max_count
 
-    def _select_and_extract(self, selector, query, data):
+    def _gen_matches(self, data, input):
         raise NotImplementedError
 
     def __call__(self, data):
         input = data.pop(self._input) if self._pop_input else data[self._input]
 
+        count = 0
+        for match in self._gen_matches(data, input):
+            count += 1
+            yield match
+
+        if self._min_count and count < self._min_count:
+            raise ValueError("Did not match required %d matches (got %d) using %s"
+                             % (self._min_count, count, self))
+
+        if self._max_count and count > self._max_count:
+            raise ValueError("Matched more than %d matches (got %d) using %s"
+                             % (self._max_count, count, self))
+
+
+class ResponseExtractorMatch(ExtractorMatch):
+    """TODO"""
+
+    def __init__(self, query, xpaths=None, csss=None, **kwargs):
+        super(ResponseExtractorMatch, self).__init__(query, **kwargs)
+        self._xpaths = xpaths
+        self._csss = csss
+
+    def _select_and_extract(self, selector, query, data):
+        raise NotImplementedError
+
+    def _gen_matches(self, data, input):
         if isinstance(input, Response):
             selector = Selector(response=input)
             if hasattr(input, 'url') and input.url and ('url' not in data):
@@ -69,7 +93,6 @@ class ExtractorMatch(object):
         else:
             selector = Selector(text=input)
 
-        count = 0
         for entry, data_ in self._select_and_extract(selector, self.query, data):
             data_ = updated(data_, {self._output: entry.extract()})
             # now get associated xpaths, css, etc
@@ -94,19 +117,10 @@ class ExtractorMatch(object):
                             data_[key] = key_extracted[0]
                     else:
                         data_[key] = key_extracted[0]
-            count += 1
             yield data_
 
-        if self._min_count and count < self._min_count:
-            raise ValueError("Did not match required %d matches (got %d) using %s"
-                             % (self._min_count, count, self))
 
-        if self._max_count and count > self._max_count:
-            raise ValueError("Matched more than %d matches (got %d) using %s"
-                             % (self._max_count, count, self))
-
-
-class ScrapyExtractorMatch(ExtractorMatch):
+class ScrapyExtractorMatch(ResponseExtractorMatch):
 
     EXTRACTOR = None  # defined in subclasses
 
@@ -128,7 +142,7 @@ class css_match(ScrapyExtractorMatch):
     EXTRACTOR = Selector.css
 
 
-class AExtractorMatch(ExtractorMatch):
+class AExtractorMatch(ResponseExtractorMatch):
     """Helper to simplify matching of URLs based on their HREF or text
     """
 
@@ -190,3 +204,23 @@ class a_text_match(AExtractorMatch):
 
     """
     _TARGET = 'text'
+
+
+class json_match(ExtractorMatch):
+    """
+
+    Example
+    -------
+
+    json_match(lambda data: next(j for j in data['sites'] if j['id'] == 'brown'))
+    """
+    def _gen_matches(self, data, input):
+        if isinstance(input, Response):
+            json_entry = input.body
+            if hasattr(input, 'url') and input.url and ('url' not in data):
+                # take the URL of the response object
+                data = updated(data, {'url': input.url})
+        else:
+            json_entry = input
+
+        for
